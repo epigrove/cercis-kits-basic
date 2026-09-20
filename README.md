@@ -1,8 +1,11 @@
-# 基础工具包（basic）
+# 基础工具包（cercis-kits-basic）
 
 人人可用的基础功能。**它不是一个程序，而是一组独立插件**——
 每个插件有自己的 `plugin.yaml`、自己的权限、自己的界面扩展点，
 可以单独启停、单独授权、单独升级（需求文档 §14.4 第 2 层）。
+
+> 本仓库只放**任何行业都用得上**的功能；科研专用功能在另一个仓库
+> `cercis-kits-research`（需求文档 §14.4 的"共用下沿"原则）。
 
 ```
 basic/
@@ -44,7 +47,7 @@ basic/
 ## 构建与测试
 
 ```bash
-cd kits/basic
+cd cercis-kits-basic       # 在本工作区里是 kits/basic
 cargo build          # 产出 4 个插件二进制
 cargo test           # 20 个测试：单元 + 端到端（跨进程跑真内核）
                      # 含"清单里声明的命令必须是插件真认的子命令"
@@ -53,7 +56,7 @@ cargo test           # 20 个测试：单元 + 端到端（跨进程跑真内核
 端到端测试会真的调用内核命令，因此需要内核二进制存在：
 
 ```bash
-cd ../../kernel && cargo build
+cd ../kernel && cargo build     # 在本工作区里；单独克隆时指向 cercis-core
 ```
 
 若插件二进制比源码旧（`cargo test` 不会刷新 `target/debug/` 下的插件），
