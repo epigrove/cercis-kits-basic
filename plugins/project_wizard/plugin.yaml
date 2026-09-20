@@ -1,0 +1,32 @@
+# 项目向导（基础工具包插件）
+#
+# 一个插件 = 一份清单 + 一个可执行入口。清单声明它要什么权限、在界面里插在哪；
+# 入口通过内核命令行（--json）干活，写入一律走内核通道。
+id: project_wizard
+name: Project Wizard
+label_cn: 项目向导
+version: 0.1.0
+tier: basic
+requires_plugin_api: 1
+
+permissions:
+  read: true
+  write: true      # 新建项目、装模板会写文件
+  network: false
+
+surfaces:
+  desktop_gui: true
+  desktop_cli: true
+  tablet: false
+  phone: false
+
+ui:
+  - kind: command
+    id: wizard.new_project
+    command: ""            # 本入口没有子命令，参数由 app 按表单一栏一栏给
+    label_cn: 新建项目…
+    label_en: New project…
+    placement: welcome
+
+entrypoint: cercis-plugin-wizard
+description: 新建项目、选择模板（空白/科研/自定义）、扫描已有文件夹（只读，不动原文件）

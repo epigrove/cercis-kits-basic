@@ -1,0 +1,38 @@
+# 通用录入（基础工具包插件）
+#
+# 写入是本插件的核心动作，因此必须声明 write 权限：
+# app 只有在用户明确信任/授权后才把 --allow-write 传进来。
+id: data_entry
+name: Data Entry
+label_cn: 通用录入
+version: 0.1.0
+tier: basic
+requires_plugin_api: 1
+
+permissions:
+  read: true
+  write: true
+  network: false
+
+surfaces:
+  desktop_gui: true
+  desktop_cli: true
+  tablet: false
+  phone: false
+
+ui:
+  - kind: command
+    id: entry.append
+    command: entry append
+    label_cn: 新增记录…
+    label_en: Add records…
+    placement: data
+  - kind: command
+    id: entry.attach
+    command: entry attach
+    label_cn: 挂接附件…
+    label_en: Attach file…
+    placement: data
+
+entrypoint: cercis-plugin-entry
+description: 表格式录入与批量粘贴、附件挂接（复制进项目并写索引行）

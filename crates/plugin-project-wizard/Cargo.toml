@@ -1,0 +1,16 @@
+[package]
+name = "cercis-plugin-wizard"
+description = "Cercis 基础工具包插件 · 项目向导：新建项目、选模板、扫描已有文件夹"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "cercis-plugin-wizard"
+path = "src/main.rs"
+
+[dependencies]
+cercis-kit-core = { path = "../cercis-kit-core" }
+clap = { workspace = true }
+serde_json = { workspace = true }

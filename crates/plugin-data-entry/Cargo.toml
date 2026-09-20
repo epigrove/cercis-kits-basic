@@ -1,0 +1,19 @@
+[package]
+name = "cercis-plugin-entry"
+description = "Cercis 基础工具包插件 · 通用录入：批量粘贴、单行录入、附件挂接"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "cercis-plugin-entry"
+path = "src/main.rs"
+
+[dependencies]
+cercis-kit-core = { path = "../cercis-kit-core" }
+clap = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }

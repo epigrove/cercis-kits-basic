@@ -1,0 +1,19 @@
+[package]
+name = "cercis-plugin-transfer"
+description = "Cercis 基础工具包插件 · 通用导入导出：CSV/TSV 导入向导、长表/宽表导出、说明书"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "cercis-plugin-transfer"
+path = "src/main.rs"
+
+[dependencies]
+cercis-kit-core = { path = "../cercis-kit-core" }
+clap = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "cercis-plugin-health"
+description = "Cercis 基础工具包插件 · 通用体检：孤儿文件、断链、编码、命名冲突、主键重复"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "cercis-plugin-health"
+path = "src/main.rs"
+
+[dependencies]
+cercis-kit-core = { path = "../cercis-kit-core" }
+clap = { workspace = true }
+serde_json = { workspace = true }

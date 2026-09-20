@@ -1,0 +1,32 @@
+# 通用体检（基础工具包插件）
+#
+# 只读插件：不声明 write，也就拿不到写入授权——"体检不该改数据"由权限模型保证，
+# 而不是靠自觉。
+id: health_check
+name: Health Check
+label_cn: 通用体检
+version: 0.1.0
+tier: basic
+requires_plugin_api: 1
+
+permissions:
+  read: true
+  write: false
+  network: false
+
+surfaces:
+  desktop_gui: true
+  desktop_cli: true
+  tablet: true
+  phone: true
+
+ui:
+  - kind: command
+    id: health.check
+    command: ""
+    label_cn: 项目体检
+    label_en: Health check
+    placement: tools
+
+entrypoint: cercis-plugin-health
+description: 目录骨架、引用断链、CSV 编码（BOM/CRLF/非 UTF-8）、命名冲突、主键重复、孤儿附件

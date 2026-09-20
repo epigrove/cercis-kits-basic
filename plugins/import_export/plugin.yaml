@@ -1,0 +1,42 @@
+# 通用导入导出（基础工具包插件）
+#
+# 导入要写数据；导出不改数据、但要往变更流水里记一条"导出过什么"，因此同样声明 write。
+id: import_export
+name: Import & Export
+label_cn: 通用导入导出
+version: 0.1.0
+tier: basic
+requires_plugin_api: 1
+
+permissions:
+  read: true
+  write: true
+  network: false
+
+surfaces:
+  desktop_gui: true
+  desktop_cli: true
+  tablet: false
+  phone: false
+
+ui:
+  - kind: command
+    id: transfer.import
+    command: import
+    label_cn: 导入 CSV…
+    label_en: Import CSV…
+    placement: tools
+  - kind: command
+    id: transfer.export
+    command: export
+    label_cn: 导出数据…
+    label_en: Export data…
+    placement: tools
+  - kind: export_format
+    id: transfer.csv
+    label_cn: CSV（长表 / 宽表）
+    label_en: CSV (long / wide)
+    placement: export_menu
+
+entrypoint: cercis-plugin-transfer
+description: CSV/TSV 导入向导（列映射、试运行、导入报告）、长表/宽表导出、数据说明书
