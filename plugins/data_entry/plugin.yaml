@@ -23,13 +23,13 @@ surfaces:
 ui:
   - kind: command
     id: entry.append
-    command: entry append
+    command: append
     label_cn: 新增记录…
     label_en: Add records…
     placement: data
   - kind: command
     id: entry.attach
-    command: entry attach
+    command: attach
     label_cn: 挂接附件…
     label_en: Attach file…
     placement: data

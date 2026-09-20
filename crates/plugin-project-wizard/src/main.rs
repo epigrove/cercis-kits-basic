@@ -104,8 +104,8 @@ pub fn run(kernel: &Kernel, opts: &WizardOptions) -> Result<Value> {
         "scan": scan,
         "next": [
             "用 app 打开这个项目文件夹",
-            "或在命令行：cercis-basic entry append --project <目录> --table <表> --set 列=值",
-            "体检：cercis-basic health --project <目录>"
+            "录入数据：cercis-plugin-entry append --project <目录> --table <表> --set 列=值 --allow-write",
+            "体检：cercis-plugin-health --project <目录>"
         ],
     }))
 }

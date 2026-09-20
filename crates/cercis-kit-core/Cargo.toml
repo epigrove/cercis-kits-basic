@@ -12,3 +12,6 @@ csv = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 chrono = { workspace = true }
+
+[dev-dependencies]
+serde_yaml = "0.9"

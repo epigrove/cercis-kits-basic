@@ -372,6 +372,65 @@ fn s5_flow_from_wizard_to_health() {
     let _ = std::fs::remove_dir_all(&work);
 }
 
+/// 清单里声明的每个命令，都必须是插件真的认识的子命令。
+///
+/// 这条测试是给"清单写 `entry append`、入口却只吃 `append`"这类
+/// 清单与实现不一致的问题兜底的——否则 app 会在运行时才报错。
+#[test]
+fn declared_commands_match_each_plugin_cli() {
+    let manifests = workspace_root().join("plugins");
+    let mut checked = 0usize;
+
+    for entry in std::fs::read_dir(&manifests).expect("插件清单目录应存在") {
+        let dir = entry.unwrap().path();
+        let manifest_path = dir.join("plugin.yaml");
+        if !manifest_path.is_file() {
+            continue;
+        }
+        let text = std::fs::read_to_string(&manifest_path).unwrap();
+        let doc: serde_yaml::Value = serde_yaml::from_str(&text)
+            .unwrap_or_else(|e| panic!("{} 不是合法 YAML：{e}", manifest_path.display()));
+
+        let entrypoint = doc["entrypoint"].as_str().unwrap_or_default().to_string();
+        let bin = workspace_root().join("target/debug").join(&entrypoint);
+        if !bin.is_file() {
+            skip(&format!("{entrypoint} 未构建，跳过命令一致性检查"));
+            return;
+        }
+
+        let commands: Vec<String> = doc["ui"]
+            .as_sequence()
+            .map(|list| {
+                list.iter()
+                    .filter(|u| u["kind"].as_str() == Some("command"))
+                    .map(|u| u["command"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(
+            !commands.is_empty(),
+            "{entrypoint} 的清单里至少要声明一个 command 扩展点"
+        );
+
+        for command in commands {
+            let mut args: Vec<String> = command
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect();
+            args.push("--help".into());
+            let output = Command::new(&bin).args(&args).output().unwrap();
+            let err = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                output.status.success(),
+                "清单声明 `{entrypoint} {command}`，但入口不认这个命令：\n{err}"
+            );
+            checked += 1;
+        }
+    }
+
+    assert!(checked >= 4, "应至少检查 4 个命令，实际 {checked}");
+}
+
 #[test]
 fn plugin_manifests_are_accepted_by_kernel() {
     let Some(kernel) = kernel_bin() else {
