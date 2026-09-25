@@ -3,6 +3,7 @@
 # 写入是本插件的核心动作，因此必须声明 write 权限：
 # app 只有在用户明确信任/授权后才把 --allow-write 传进来。
 id: data_entry
+namespace: entry   # 扩展点键前缀（D40）：本插件的界面扩展点都写在 `entry.` 下面
 name: Data Entry
 label_cn: 通用录入
 version: 0.1.0

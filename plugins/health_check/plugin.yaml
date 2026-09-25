@@ -3,6 +3,7 @@
 # 只读插件：不声明 write，也就拿不到写入授权——"体检不该改数据"由权限模型保证，
 # 而不是靠自觉。
 id: health_check
+namespace: health   # 扩展点键前缀（D40）：本插件的界面扩展点都写在 `health.` 下面
 name: Health Check
 label_cn: 通用体检
 version: 0.1.0

@@ -3,6 +3,7 @@
 # 一个插件 = 一份清单 + 一个可执行入口。清单声明它要什么权限、在界面里插在哪；
 # 入口通过内核命令行（--json）干活，写入一律走内核通道。
 id: project_wizard
+namespace: wizard   # 扩展点键前缀（D40）：本插件的界面扩展点都写在 `wizard.` 下面
 name: Project Wizard
 label_cn: 项目向导
 version: 0.1.0

@@ -70,6 +70,80 @@ pub fn run(kernel: &Kernel, project: &Path) -> Result<Value> {
         }),
     }
 
+    // 0.5 插件状态（D37/D38/D40）：停用、未生效、键冲突、撤不回去的登记
+    if let Ok(found) = kernel.json(&["plugins".into(), project.display().to_string()]) {
+        if let Some(list) = found.get("plugins").and_then(|v| v.as_array()) {
+            for p in list {
+                let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                if p.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    findings.push(Finding {
+                        level: "info",
+                        code: "plugin.disabled",
+                        target: id.to_string(),
+                        message_cn: format!("插件 {id} 已停用（它的登记已回滚）"),
+                        message_en: format!("Plugin {id} is disabled"),
+                    });
+                    continue;
+                }
+                if !p.get("active").and_then(|v| v.as_bool()).unwrap_or(true) {
+                    let reasons = p
+                        .get("inactive_reasons")
+                        .and_then(|v| v.as_array())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_str())
+                                .collect::<Vec<_>>()
+                                .join("；")
+                        })
+                        .unwrap_or_default();
+                    findings.push(Finding {
+                        level: "info",
+                        code: "plugin.inactive",
+                        target: id.to_string(),
+                        message_cn: format!("插件 {id} 已装但未生效：{reasons}"),
+                        message_en: format!("Plugin {id} is installed but inactive: {reasons}"),
+                    });
+                }
+            }
+        }
+        for c in found
+            .get("conflicts")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+        {
+            let text = c.as_str().unwrap_or("").to_string();
+            findings.push(Finding {
+                level: "warn",
+                code: "plugin.conflict",
+                target: "plugins/".to_string(),
+                message_cn: text.clone(),
+                message_en: text,
+            });
+        }
+        for b in found
+            .get("blocked_registrations")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+        {
+            let plugin = b.get("plugin").and_then(|v| v.as_str()).unwrap_or("");
+            let target = b.get("target").and_then(|v| v.as_str()).unwrap_or("");
+            let reason = b.get("blocked_reason").and_then(|v| v.as_str()).unwrap_or("");
+            findings.push(Finding {
+                level: "warn",
+                code: "plugin.registration_blocked",
+                target: format!("{plugin}:{target}"),
+                message_cn: format!(
+                    "插件 {plugin} 的登记「{target}」撤不回去：{reason}"
+                ),
+                message_en: format!(
+                    "Plugin {plugin} registration '{target}' cannot be reverted: {reason}"
+                ),
+            });
+        }
+    }
+
     // 1. 目录骨架（内核体检）
     if let Ok(doctor) = kernel.doctor(project) {
         if let Some(issues) = doctor.get("issues").and_then(|v| v.as_array()) {
