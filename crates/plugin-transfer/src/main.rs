@@ -537,8 +537,10 @@ fn import_report(
     }
 
     out.push_str("\n## 复现命令\n\n```bash\n");
+    // 命令名从 Cargo 取（CARGO_BIN_NAME），避免改名后说明书里的命令失效
     out.push_str(&format!(
-        "cercis-basic data import --project {} --table {} --file {} --allow-write\n",
+        "{} import --project {} --table {} --file {} --allow-write\n",
+        env!("CARGO_BIN_NAME"),
         opts.project.display(),
         opts.table,
         opts.file.display()
@@ -605,7 +607,8 @@ fn export_readme(
 
     out.push_str("\n## 复现命令\n\n```bash\n");
     out.push_str(&format!(
-        "cercis-basic data export --project {} --table {} --out {} --format {}{}{}\n",
+        "{} export --project {} --table {} --out {} --format {}{}{}\n",
+        env!("CARGO_BIN_NAME"),
         opts.project.display(),
         opts.table,
         opts.out.display(),
@@ -646,7 +649,9 @@ fn file_sha256(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cercis_kit_core::checks::RowCheck;
     use cercis_kit_core::kernel::{TableField, TableSchema};
+    use cercis_kit_core::model::InputTable;
 
     fn row(pairs: &[(&str, &str)]) -> Row {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
@@ -757,6 +762,71 @@ mod tests {
         assert_eq!(
             resolve_out_path(dir, "observations", "csv", true),
             PathBuf::from("/tmp/out/observations-wide.csv")
+        );
+    }
+
+    /// 说明书与报告里的"复现命令"必须用**当前**的二进制名。
+    ///
+    /// 这个是 S6 黄金对照验收抓到的真问题：工具包拆成四个插件后，
+    /// 生成的说明书里还写着早已不存在的 `cercis-basic data export …`，
+    /// 半年后照着敲会直接失败。
+    #[test]
+    fn generated_docs_use_current_binary_name() {
+        let bin = env!("CARGO_BIN_NAME");
+
+        let export = ExportOptions {
+            project: PathBuf::from("/tmp/proj"),
+            table: "observations".into(),
+            out: PathBuf::from("/tmp/out"),
+            format: "csv".into(),
+            wide: None,
+            value: None,
+            readme: true,
+            filters: vec![],
+            sort: None,
+        };
+        let schema = TableSchema {
+            table: "observations".into(),
+            label_cn: "观测".into(),
+            label_en: String::new(),
+            primary_key: "obs_id".into(),
+            fields: vec![],
+        };
+        let readme = export_readme(&export, &schema, &["obs_id".to_string()], 3);
+        assert!(
+            readme.contains(&format!("{bin} export --project")),
+            "导出说明书的复现命令应使用 {bin}：\n{readme}"
+        );
+        assert!(
+            !readme.contains("cercis-basic"),
+            "不应再出现已废弃的命令名 cercis-basic"
+        );
+
+        let import = ImportOptions {
+            project: PathBuf::from("/tmp/proj"),
+            table: "observations".into(),
+            file: PathBuf::from("/tmp/data.csv"),
+            maps: vec![],
+            skip_unknown: false,
+            dry_run: false,
+            report: None,
+            allow_new_columns: false,
+        };
+        let mapping = Mapping { pairs: vec![], skipped: vec![] };
+        let input = InputTable {
+            headers: vec!["obs_id".into()],
+            rows: vec![],
+            source: "synthetic".into(),
+        };
+        let check = RowCheck::default();
+        let report = import_report(&import, &mapping, &input, &[], 0, &check, "BATCH-1");
+        assert!(
+            report.contains(&format!("{bin} import --project")),
+            "导入报告的复现命令应使用 {bin}：\n{report}"
+        );
+        assert!(
+            !report.contains("cercis-basic"),
+            "不应再出现已废弃的命令名 cercis-basic"
         );
     }
 }
