@@ -21,10 +21,12 @@ pub mod error;
 pub mod kernel;
 pub mod model;
 pub mod refs;
+pub mod types;
 
 pub use error::{err, err_hint, KitError, Result};
 pub use kernel::{Kernel, KernelRun, TableField, TableSchema};
 pub use model::{InputTable, Row};
+pub use types::{RuleSeverity, TypeCatalog, Verdict};
 
 /// 插件输出协议版本（机器可读输出的 `schema` 字段）。
 pub const OUTPUT_SCHEMA: &str = "cercis.plugin/1";

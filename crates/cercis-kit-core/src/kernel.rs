@@ -325,6 +325,10 @@ pub struct TableField {
     pub allowed_values: Vec<String>,
     /// 取值范围（数值类）
     pub range: Option<(Option<f64>, Option<f64>)>,
+    /// 正则模式（text 列；整格匹配）
+    pub pattern: String,
+    /// 小数位数（number 列；超出只提醒）
+    pub precision: Option<u8>,
 }
 
 /// 某张表的字段定义 + 主键。
@@ -399,6 +403,11 @@ pub fn table_schema(template: &Value, table: &str) -> TableSchema {
                                 a[1].as_f64(),
                             ))
                         }),
+                        pattern: str_of(f, "pattern"),
+                        precision: f
+                            .get("precision")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u8),
                     })
                     .collect()
             })

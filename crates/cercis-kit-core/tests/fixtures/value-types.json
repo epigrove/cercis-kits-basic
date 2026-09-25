@@ -1,0 +1,241 @@
+{
+  "constraints": [
+    {
+      "applies_to": "所有类型",
+      "label_cn": "必填",
+      "name": "required",
+      "notes": "空单元格即违规。",
+      "severity": "error"
+    },
+    {
+      "applies_to": "integer / number",
+      "label_cn": "建议范围",
+      "name": "range",
+      "notes": "[min, max]；超出只提醒，用来挡笔误（1750 写成 17500）。",
+      "severity": "warning"
+    },
+    {
+      "applies_to": "所有类型",
+      "label_cn": "允许值",
+      "name": "allowed_values",
+      "notes": "分号分隔的清单；不在清单内即违规（写错分类会污染下游统计）。",
+      "severity": "error"
+    },
+    {
+      "applies_to": "text",
+      "label_cn": "正则模式",
+      "name": "pattern",
+      "notes": "整格匹配（内部按 ^(?:pattern)$ 执行）；编号格式、样品编号用它。",
+      "severity": "error"
+    },
+    {
+      "applies_to": "number",
+      "label_cn": "小数位数",
+      "name": "precision",
+      "notes": "超过位数只提醒（称量/仪器精度）；不四舍五入、不改数据。",
+      "severity": "warning"
+    },
+    {
+      "applies_to": "integer / number",
+      "label_cn": "计量单位",
+      "name": "unit",
+      "notes": "不校验，仅展示与导出用。",
+      "severity": "none"
+    },
+    {
+      "applies_to": "所有类型",
+      "label_cn": "引用",
+      "name": "reference",
+      "notes": "`表名.列名`；被引用的记录必须存在（内核查引用完整性）。",
+      "severity": "error"
+    }
+  ],
+  "core_version": "0.1.0",
+  "domains": [
+    {
+      "csv_form": "原样文本（默认类型）",
+      "examples_bad": [],
+      "examples_ok": [
+        "合成甲",
+        "N1P0D1V2",
+        "小区-01"
+      ],
+      "inferable": true,
+      "label_cn": "文本",
+      "label_en": "Text",
+      "matcher": {
+        "kind": "any"
+      },
+      "name": "text",
+      "notes": "不检查内容；需要格式约束时用 pattern（正则）。",
+      "severity_on_violation": "error"
+    },
+    {
+      "csv_form": "十进制整数：无千分位、无小数点",
+      "examples_bad": [
+        "12.5",
+        "1,200",
+        "1e3",
+        "十二"
+      ],
+      "examples_ok": [
+        "12",
+        "-3",
+        "0"
+      ],
+      "inferable": true,
+      "label_cn": "整数",
+      "label_en": "Integer",
+      "matcher": {
+        "kind": "regex",
+        "pattern": "^-?[0-9]+$"
+      },
+      "name": "integer",
+      "notes": "计数、株数、重复次数等必须是整数的量。",
+      "severity_on_violation": "error"
+    },
+    {
+      "csv_form": "规范数字写法：可选负号 + 数字，小数点用 `.`，不用科学计数法",
+      "examples_bad": [
+        "1e3",
+        "1,200.5",
+        ".5",
+        "十二",
+        "NaN"
+      ],
+      "examples_ok": [
+        "12",
+        "12.5",
+        "0.05",
+        "-1.5"
+      ],
+      "inferable": true,
+      "label_cn": "数值",
+      "label_en": "Number",
+      "matcher": {
+        "kind": "regex",
+        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+      },
+      "name": "number",
+      "notes": "读数、重量、浓度等。小数位数用 precision 约束（只提醒）。",
+      "severity_on_violation": "error"
+    },
+    {
+      "csv_form": "`是` / `否`（也接受 `true` / `false`）",
+      "examples_bad": [
+        "Y",
+        "N",
+        "1",
+        "0"
+      ],
+      "examples_ok": [
+        "是",
+        "否",
+        "true",
+        "false"
+      ],
+      "inferable": true,
+      "label_cn": "是/否",
+      "label_en": "Boolean",
+      "matcher": {
+        "ascii_case_insensitive": true,
+        "kind": "enum",
+        "values": [
+          "是",
+          "否",
+          "true",
+          "false"
+        ]
+      },
+      "name": "bool",
+      "notes": "建议统一写 是/否；写 Y/1 只提醒、不阻断。",
+      "severity_on_violation": "warning"
+    },
+    {
+      "csv_form": "ISO 8601：`YYYY-MM-DD`",
+      "examples_bad": [
+        "2026/6/15",
+        "15-06-2026",
+        "2026-13-01"
+      ],
+      "examples_ok": [
+        "2026-06-15",
+        "2026-01-01"
+      ],
+      "inferable": true,
+      "label_cn": "日期",
+      "label_en": "Date",
+      "matcher": {
+        "checker": "iso_date",
+        "kind": "builtin"
+      },
+      "name": "date",
+      "notes": "必须是真实存在的日历日（2026-02-30 不合法）。",
+      "severity_on_violation": "error"
+    },
+    {
+      "csv_form": "ISO 8601 且带时区：`2026-06-15T09:30+08:00` 或 `...Z`",
+      "examples_bad": [
+        "2026-06-15 09:30",
+        "2026-06-15T09:30"
+      ],
+      "examples_ok": [
+        "2026-06-15T09:30+08:00",
+        "2026-06-15T01:30:00Z"
+      ],
+      "inferable": true,
+      "label_cn": "日期时间",
+      "label_en": "Datetime",
+      "matcher": {
+        "checker": "iso8601_tz",
+        "kind": "builtin"
+      },
+      "name": "datetime",
+      "notes": "跨时区设备协作时必须带时区；写法不完整只提醒。",
+      "severity_on_violation": "warning"
+    },
+    {
+      "csv_form": "`HH:MM` 或 `HH:MM:SS`（24 小时制，补零）",
+      "examples_bad": [
+        "9:30",
+        "24:00",
+        "9点30"
+      ],
+      "examples_ok": [
+        "09:30",
+        "23:59:59",
+        "00:00"
+      ],
+      "inferable": false,
+      "label_cn": "时刻",
+      "label_en": "Time",
+      "matcher": {
+        "kind": "regex",
+        "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$"
+      },
+      "name": "time",
+      "notes": "只做校验、不参与类型推断（09:30 与 9:30 都能读懂，推断没有意义）。",
+      "severity_on_violation": "warning"
+    }
+  ],
+  "missing_markers": [
+    "NA",
+    "N/A",
+    "na",
+    "null",
+    "NULL",
+    "NaN",
+    "-",
+    "--",
+    "?",
+    "."
+  ],
+  "missing_value_rule": "缺失值一律留空单元格；写 NA / - / 0 代替只给提醒，不给错误",
+  "schema": "cercis.value_types/1",
+  "severity_policy": "结构错误（类型/必填/允许值/模式/引用）阻止写入；范围与精度只提醒；导出永不因校验阻断",
+  "validation_points": [
+    "写入前（录入 / 导入）：有问题整批不写，先试运行",
+    "项目体检（cercis validate）：逐格校验，只报告不改数据",
+    "导出前（可选）：说明书附未通过校验的格子清单，导出永不阻断"
+  ]
+}

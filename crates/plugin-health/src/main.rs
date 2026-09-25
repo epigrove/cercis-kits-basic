@@ -36,6 +36,40 @@ pub fn run(kernel: &Kernel, project: &Path) -> Result<Value> {
 
     let mut findings: Vec<Finding> = Vec::new();
 
+    // 0. 类型规则：确认内核提供了类型清单（体检与导入都按它判类型，见 §5.9 / D36）
+    match cercis_kit_core::types::TypeCatalog::from_kernel(kernel) {
+        Ok(catalog) => {
+            let names = catalog.names();
+            if names.len() != 7 {
+                findings.push(Finding {
+                    level: "warn",
+                    code: "types.contract",
+                    target: "内核".to_string(),
+                    message_cn: format!(
+                        "内核给的类型清单是 {} 项（预期 7 项：{}）——内核与工具包版本可能不匹配",
+                        names.len(),
+                        names.join(" / ")
+                    ),
+                    message_en: format!(
+                        "Kernel type list has {} entries (expected 7): {}",
+                        names.len(),
+                        names.join(" / ")
+                    ),
+                });
+            }
+        }
+        Err(e) => findings.push(Finding {
+            level: "warn",
+            code: "types.unavailable",
+            target: "内核".to_string(),
+            message_cn: format!(
+                "拿不到内核的类型清单（{}）——类型校验可能对不上，建议升级内核",
+                e.message
+            ),
+            message_en: format!("Kernel type list unavailable: {}", e.message),
+        }),
+    }
+
     // 1. 目录骨架（内核体检）
     if let Ok(doctor) = kernel.doctor(project) {
         if let Some(issues) = doctor.get("issues").and_then(|v| v.as_array()) {

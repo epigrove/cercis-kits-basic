@@ -2,11 +2,16 @@
 //!
 //! 原则（需求文档 §7.2 / §7.3）：**结构错误阻止写入，业务规则给警告**。
 //! 检查放在写入之前，脏数据就进不了项目；这也让"试运行"能给出真实结论。
+//!
+//! 类型规则**不在本文件里**：它们来自内核（[`crate::types::TypeCatalog`]），
+//! 本模块只负责"逐行逐列地问一遍"。原因见 §5.9 / D36——类型是数据契约的一部分，
+//! 只能有一份实现。
 
 use std::collections::BTreeSet;
 
 use crate::kernel::TableSchema;
 use crate::model::Row;
+use crate::types::{RuleSeverity, TypeCatalog};
 
 /// 一批行的检查结果。
 #[derive(Debug, Default)]
@@ -34,6 +39,7 @@ pub fn check_rows(
     rows: &[Row],
     existing_pks: &BTreeSet<String>,
     allow_new_columns: bool,
+    types: &TypeCatalog,
 ) -> RowCheck {
     let mut out = RowCheck::default();
     let schema_columns: BTreeSet<&str> = schema.fields.iter().map(|f| f.name.as_str()).collect();
@@ -80,40 +86,76 @@ pub fn check_rows(
             if value.is_empty() {
                 continue;
             }
-            if !type_ok(&field.field_type, value) {
-                out.errors.push(format!(
-                    "第 {line} 行：字段「{}」应为 {} 类型，实际是 {:?}",
-                    field_label(field),
-                    field.field_type,
-                    value
-                ));
-                continue;
+            // 类型：按内核发布的规则判（不是插件自己那一套）
+            match types.check(&field.field_type, value) {
+                crate::types::Verdict::Ok => {}
+                crate::types::Verdict::Violation { severity, message } => {
+                    let text = format!(
+                        "第 {line} 行：字段「{}」{}，实际是 {:?}",
+                        field_label(field),
+                        message,
+                        value
+                    );
+                    if severity == RuleSeverity::Error {
+                        out.errors.push(text);
+                        continue;
+                    } else {
+                        out.warnings.push(text);
+                        continue;
+                    }
+                }
             }
             if !field.allowed_values.is_empty()
                 && !field.allowed_values.iter().any(|a| a == value)
             {
-                out.warnings.push(format!(
+                // 强度由内核清单给（§5.9.2：允许值是错误级）
+                let text = format!(
                     "第 {line} 行：字段「{}」的值 {:?} 不在允许值（{}）内",
                     field_label(field),
                     value,
                     field.allowed_values.join(" / ")
-                ));
+                );
+                push_by_severity(&mut out, types.constraint_severity("allowed_values"), text);
+            }
+            // 正则模式（text）
+            if !field.pattern.is_empty() && !full_match(&field.pattern, value) {
+                let text = format!(
+                    "第 {line} 行：字段「{}」的值 {:?} 不符合约定的格式 /{}/",
+                    field_label(field),
+                    value,
+                    field.pattern
+                );
+                push_by_severity(&mut out, types.constraint_severity("pattern"), text);
             }
             if let (Some((min, max)), Ok(num)) = (field.range, value.parse::<f64>()) {
                 if let Some(lo) = min {
                     if num < lo {
-                        out.warnings.push(format!(
+                        let text = format!(
                             "第 {line} 行：字段「{}」的值 {num} 小于建议下限 {lo}",
                             field_label(field)
-                        ));
+                        );
+                        push_by_severity(&mut out, types.constraint_severity("range"), text);
                     }
                 }
                 if let Some(hi) = max {
                     if num > hi {
-                        out.warnings.push(format!(
+                        let text = format!(
                             "第 {line} 行：字段「{}」的值 {num} 大于建议上限 {hi}",
                             field_label(field)
-                        ));
+                        );
+                        push_by_severity(&mut out, types.constraint_severity("range"), text);
+                    }
+                }
+            }
+            // 小数位数（number）
+            if let Some(p) = field.precision {
+                if let Some(decimals) = decimal_places(value) {
+                    if decimals > p as usize {
+                        let text = format!(
+                            "第 {line} 行：字段「{}」的小数位数 {decimals} 超过约定的 {p} 位",
+                            field_label(field)
+                        );
+                        push_by_severity(&mut out, types.constraint_severity("precision"), text);
                     }
                 }
             }
@@ -173,37 +215,46 @@ fn field_label(field: &crate::kernel::TableField) -> String {
     }
 }
 
-/// 类型是否匹配（空值一律放过，必填由必填规则管）。
-fn type_ok(field_type: &str, value: &str) -> bool {
-    match field_type {
-        "number" => value.parse::<f64>().is_ok(),
-        "integer" => value.parse::<i64>().is_ok(),
-        "bool" => matches!(
-            value.to_ascii_lowercase().as_str(),
-            "true" | "false" | "0" | "1" | "是" | "否"
-        ),
-        "date" => is_iso_date(value),
-        "datetime" => is_iso_date(value) || value.contains('T') || value.contains(' '),
-        _ => true,
+/// 按内核给的强度把问题放进"错误"或"提醒"里。
+fn push_by_severity(out: &mut RowCheck, severity: RuleSeverity, text: String) {
+    match severity {
+        RuleSeverity::Error => out.errors.push(text),
+        RuleSeverity::Warning => out.warnings.push(text),
     }
 }
 
-/// ISO 8601 日期（YYYY-MM-DD）。
-fn is_iso_date(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
-        return false;
+/// 整格匹配正则（与内核的 `pattern` 语义一致：`^(?:pattern)$`）。
+fn full_match(pattern: &str, value: &str) -> bool {
+    match regex::Regex::new(&format!("^(?:{pattern})$")) {
+        Ok(re) => re.is_match(value),
+        // 模板里的正则写错了：不拦数据（内核体检会提醒）
+        Err(_) => true,
     }
-    bytes
-        .iter()
-        .enumerate()
-        .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+}
+
+/// 小数位数（没有小数点或不是数字时返回 None）。
+fn decimal_places(value: &str) -> Option<usize> {
+    let v = value.trim();
+    if v.contains(',') {
+        return None;
+    }
+    let frac = v.split_once('.')?.1;
+    if frac.is_empty() || !frac.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(frac.len())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::kernel::{TableField, TableSchema};
+    use crate::types::{TypeCatalog, Verdict};
+
+    /// 类型规则来自内核契约快照（真实内核由一致性测试逐值对账）。
+    fn types() -> TypeCatalog {
+        crate::types::fixture()
+    }
 
     fn schema() -> TableSchema {
         TableSchema {
@@ -222,6 +273,8 @@ mod tests {
                     reference: String::new(),
                     allowed_values: vec![],
                     range: None,
+                    pattern: String::new(),
+                    precision: None,
                 },
                 TableField {
                     name: "value_num".into(),
@@ -233,6 +286,8 @@ mod tests {
                     reference: String::new(),
                     allowed_values: vec![],
                     range: Some((Some(0.0), Some(100.0))),
+                    pattern: String::new(),
+                    precision: None,
                 },
             ],
         }
@@ -245,7 +300,7 @@ mod tests {
     #[test]
     fn accepts_good_rows() {
         let rows = vec![row(&[("record_id", "R-1"), ("value_num", "12.5")])];
-        let check = check_rows(&schema(), &rows, &BTreeSet::new(), false);
+        let check = check_rows(&schema(), &rows, &BTreeSet::new(), false, &types());
         assert!(check.is_ok(), "{:?}", check.errors);
         assert!(check.warnings.is_empty());
     }
@@ -253,12 +308,13 @@ mod tests {
     #[test]
     fn blocks_unknown_column_missing_required_and_bad_type() {
         let rows = vec![row(&[("value_num", "abc"), ("typo", "x")])];
-        let check = check_rows(&schema(), &rows, &BTreeSet::new(), false);
+        let check = check_rows(&schema(), &rows, &BTreeSet::new(), false, &types());
         assert!(!check.is_ok());
         let joined = check.errors.join(" | ");
         assert!(joined.contains("typo"), "{joined}");
         assert!(joined.contains("必填"), "{joined}");
-        assert!(joined.contains("number"), "{joined}");
+        // 类型名的说法来自内核清单（number → "数值"）
+        assert!(joined.contains("数值"), "{joined}");
     }
 
     #[test]
@@ -269,7 +325,7 @@ mod tests {
             row(&[("record_id", "R-101")]),
             row(&[("record_id", "R-101")]),
         ];
-        let check = check_rows(&schema(), &rows, &existing, false);
+        let check = check_rows(&schema(), &rows, &existing, false, &types());
         assert_eq!(check.errors.len(), 2, "{:?}", check.errors);
         assert!(check.errors[0].contains("已存在"));
         assert!(check.errors[1].contains("重复"));
@@ -278,10 +334,39 @@ mod tests {
     #[test]
     fn warns_on_out_of_range_and_allowed_values() {
         let rows = vec![row(&[("record_id", "R-2"), ("value_num", "300")])];
-        let check = check_rows(&schema(), &rows, &BTreeSet::new(), false);
+        let check = check_rows(&schema(), &rows, &BTreeSet::new(), false, &types());
         assert!(check.is_ok());
         assert_eq!(check.warnings.len(), 1);
         assert!(check.warnings[0].contains("上限"));
+    }
+
+    /// 与内核一致的几条关键判断：这些值过去被插件**错误地**放行过。
+    #[test]
+    fn type_rules_follow_kernel_contract() {
+        let t = types();
+        // 科学计数法与千分位不是规范数字
+        for bad in ["1e3", "1,200.5", "十二"] {
+            assert!(t.check("number", bad).is_error(), "{bad} 应为错误");
+        }
+        // 日期写法必须 ISO
+        assert!(t.check("date", "2026/6/15").is_error());
+        assert!(t.check("date", "2026-02-30").is_error());
+        assert!(matches!(t.check("date", "2026-06-15"), Verdict::Ok));
+        // 布尔与时刻只提醒
+        assert!(!t.check("bool", "Y").is_error());
+        assert!(!t.check("time", "9:30").is_error());
+        // 空值一律放行（必填另有规则）
+        assert!(matches!(t.check("number", ""), Verdict::Ok));
+    }
+
+    #[test]
+    fn allowed_values_blocks_and_range_only_warns() {
+        let mut s = schema();
+        s.fields[0].allowed_values = vec!["A".into(), "B".into()];
+        let rows = vec![row(&[("record_id", "C"), ("value_num", "12")])];
+        let check = check_rows(&s, &rows, &BTreeSet::new(), false, &types());
+        assert!(!check.is_ok(), "允许值不符应拦下：{:?}", check.errors);
+        assert!(check.errors[0].contains("允许值"));
     }
 
     #[test]

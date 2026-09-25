@@ -11,6 +11,7 @@ use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 
 use cercis_kit_core::checks::{check_rows, collect_key_values, drop_empty_rows};
+use cercis_kit_core::types::TypeCatalog;
 use cercis_kit_core::cli;
 use cercis_kit_core::error::{KitError, Result};
 use cercis_kit_core::kernel::Kernel;
@@ -71,7 +72,8 @@ pub fn append(kernel: &Kernel, opts: &AppendOptions) -> Result<Value> {
     } else {
         Default::default()
     };
-    let check = check_rows(&schema, &rows, &existing, opts.allow_new_columns);
+    let types = TypeCatalog::from_kernel(kernel)?;
+    let check = check_rows(&schema, &rows, &existing, opts.allow_new_columns, &types);
     if !check.is_ok() {
         return Err(KitError::with_hint(
             format!(
@@ -216,7 +218,8 @@ pub fn attach(kernel: &Kernel, opts: &AttachOptions) -> Result<Value> {
     } else {
         Default::default()
     };
-    let check = check_rows(&schema, std::slice::from_ref(&row), &existing, false);
+    let types = TypeCatalog::from_kernel(kernel)?;
+    let check = check_rows(&schema, std::slice::from_ref(&row), &existing, false, &types);
     if !check.is_ok() {
         return Err(KitError::with_hint(
             format!("挂接前检查未通过：\n- {}", check.errors.join("\n- ")),

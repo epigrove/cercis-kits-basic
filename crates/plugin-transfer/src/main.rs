@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 
 use cercis_kit_core::checks::{check_rows, collect_key_values, drop_empty_rows};
+use cercis_kit_core::types::TypeCatalog;
 use cercis_kit_core::cli;
 use cercis_kit_core::error::{KitError, Result};
 use cercis_kit_core::kernel::Kernel;
@@ -75,7 +76,8 @@ pub fn import(kernel: &Kernel, opts: &ImportOptions) -> Result<Value> {
     } else {
         Default::default()
     };
-    let check = check_rows(&schema, &rows, &existing, opts.allow_new_columns);
+    let types = TypeCatalog::from_kernel(kernel)?;
+    let check = check_rows(&schema, &rows, &existing, opts.allow_new_columns, &types);
     if !check.is_ok() {
         return Err(KitError::with_hint(
             format!(
@@ -805,6 +807,8 @@ mod tests {
                     reference: String::new(),
                     allowed_values: vec![],
                     range: None,
+                    pattern: String::new(),
+                    precision: None,
                 },
                 TableField {
                     name: "value_num".into(),
@@ -816,6 +820,8 @@ mod tests {
                     reference: String::new(),
                     allowed_values: vec![],
                     range: None,
+                    pattern: String::new(),
+                    precision: None,
                 },
             ],
         }
@@ -930,6 +936,8 @@ mod tests {
                     reference: String::new(),
                     allowed_values: vec![],
                     range: None,
+                    pattern: String::new(),
+                    precision: None,
                 },
                 TableField {
                     name: "sample_id".into(),
@@ -941,6 +949,8 @@ mod tests {
                     reference: "samples.sample_id".into(),
                     allowed_values: vec![],
                     range: None,
+                    pattern: String::new(),
+                    precision: None,
                 },
             ],
         };
@@ -1002,6 +1012,8 @@ mod tests {
             reference: format!("{name}s.{name}"),
             allowed_values: vec![],
             range: None,
+            pattern: String::new(),
+            precision: None,
         };
         let schema = TableSchema {
             table: "observations".into(),
