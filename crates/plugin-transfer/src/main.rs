@@ -88,7 +88,7 @@ pub fn import(kernel: &Kernel, opts: &ImportOptions) -> Result<Value> {
     }
     // 引用完整性：宁可导入失败，也不让断链的数据进来
     let ref_issues =
-        cercis_kit_core::refs::check_references(kernel, &opts.project, &schema, &rows)?;
+        cercis_kit_core::refs::check_references(kernel, &opts.project, &opts.table, &schema, &rows)?;
     if !ref_issues.is_empty() {
         return Err(KitError::with_hint(
             format!(
@@ -428,21 +428,32 @@ pub fn resolve_index(
         }
         wanted
     } else {
-        let foreign_keys: Vec<String> = schema
+        // 优先用**必填**的引用列：它表示"这一行讲的是谁"（如观测的 sample_id）；
+        // 可选引用列（如观测的 method_id）是这一行的属性，不该参与行身份。
+        let required_fk: Vec<String> = schema
+            .fields
+            .iter()
+            .filter(|f| !f.reference.trim().is_empty() && f.required)
+            .map(|f| f.name.clone())
+            .filter(|name| headers.iter().any(|h| h == name))
+            .collect();
+        let any_fk: Vec<String> = schema
             .fields
             .iter()
             .filter(|f| !f.reference.trim().is_empty())
             .map(|f| f.name.clone())
             .filter(|name| headers.iter().any(|h| h == name))
             .collect();
-        if foreign_keys.is_empty() {
+        if !required_fk.is_empty() {
+            required_fk
+        } else if !any_fk.is_empty() {
+            any_fk
+        } else {
             headers
                 .iter()
                 .filter(|h| *h != key_col && *h != value_col)
                 .cloned()
                 .collect()
-        } else {
-            foreign_keys
         }
     };
 
@@ -889,6 +900,9 @@ mod tests {
 
     /// S6 发现 F-04：宽表的行身份不能把逐行字段（主键、备注）也算进去，
     /// 否则每个观测各占一行、每行只有一个指标有值，宽表等于白做。
+    ///
+    /// 规则细化（S8：多因素数据发现的泛化问题）：**必填的引用列**才是"这一行讲的是谁"；
+    /// 可选引用列（如观测的 method_id）是属性，不参与行身份。
     #[test]
     fn widens_by_reference_column_by_default() {
         let headers = vec![
@@ -966,6 +980,43 @@ mod tests {
         };
         let (index3, _) = resolve_index(&no_fk, &headers, &[], "trait_id", "value_num").unwrap();
         assert_eq!(index3.len(), 4, "无引用列时应退回全部其余列：{index3:?}");
+    }
+
+    /// 同表里有"必填引用 + 可选引用"时，只按必填的那个分组
+    #[test]
+    fn prefers_required_reference_column() {
+        let headers = vec![
+            "obs_id".to_string(),
+            "sample_id".to_string(),
+            "trait_id".to_string(),
+            "value_num".to_string(),
+            "method_id".to_string(),
+        ];
+        let fk = |name: &str, required: bool| TableField {
+            name: name.into(),
+            label_cn: String::new(),
+            label_en: String::new(),
+            field_type: "text".into(),
+            unit: String::new(),
+            required,
+            reference: format!("{name}s.{name}"),
+            allowed_values: vec![],
+            range: None,
+        };
+        let schema = TableSchema {
+            table: "observations".into(),
+            label_cn: String::new(),
+            label_en: String::new(),
+            primary_key: "obs_id".into(),
+            fields: vec![fk("sample_id", true), fk("method_id", false)],
+        };
+        let (index, dropped) =
+            resolve_index(&schema, &headers, &[], "trait_id", "value_num").unwrap();
+        assert_eq!(index, vec!["sample_id".to_string()], "只按必填引用列分组");
+        assert!(
+            dropped.contains(&"method_id".to_string()),
+            "可选引用列应被合并掉：{dropped:?}"
+        );
     }
 
     /// 宽表结果：一样本一行、指标成列（F-04 的验收形态）

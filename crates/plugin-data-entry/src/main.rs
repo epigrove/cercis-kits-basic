@@ -84,7 +84,7 @@ pub fn append(kernel: &Kernel, opts: &AppendOptions) -> Result<Value> {
     }
     // 引用完整性：模板声明了 reference 的列，值必须指向真实存在的记录
     let ref_issues =
-        cercis_kit_core::refs::check_references(kernel, &opts.project, &schema, &rows)?;
+        cercis_kit_core::refs::check_references(kernel, &opts.project, &opts.table, &schema, &rows)?;
     if !ref_issues.is_empty() {
         return Err(KitError::with_hint(
             format!(
@@ -224,7 +224,7 @@ pub fn attach(kernel: &Kernel, opts: &AttachOptions) -> Result<Value> {
         ));
     }
     let ref_issues =
-        cercis_kit_core::refs::check_references(kernel, &opts.project, &schema, std::slice::from_ref(&row))?;
+        cercis_kit_core::refs::check_references(kernel, &opts.project, &opts.table, &schema, std::slice::from_ref(&row))?;
     if !ref_issues.is_empty() {
         return Err(KitError::with_hint(
             format!("挂接前引用检查未通过：\n- {}", ref_issues.join("\n- ")),

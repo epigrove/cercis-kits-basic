@@ -15,6 +15,7 @@ use crate::model::Row;
 pub fn check_references(
     kernel: &Kernel,
     project: &Path,
+    current_table: &str,
     schema: &TableSchema,
     rows: &[Row],
 ) -> Result<Vec<String>> {
@@ -46,7 +47,7 @@ pub fn check_references(
         if values.is_empty() {
             continue;
         }
-        let existing: BTreeSet<String> = match kernel.fetch_rows(project, &table, &[], None) {
+        let mut candidates: BTreeSet<String> = match kernel.fetch_rows(project, &table, &[], None) {
             Ok(rows) => rows
                 .iter()
                 .filter_map(|r| r.get(&column))
@@ -60,7 +61,20 @@ pub fn check_references(
             }
         };
 
-        let missing: Vec<&String> = values.difference(&existing).collect();
+        // 自引用/层级数据（如 samples.parent_sample_id → samples.sample_id）：
+        // 被引用的记录可能就在**这一批**里（父子同批导入），必须把它们也算作已存在。
+        if current_table == table {
+            for row in rows {
+                if let Some(v) = row.get(&column) {
+                    let v = v.trim();
+                    if !v.is_empty() {
+                        candidates.insert(v.to_string());
+                    }
+                }
+            }
+        }
+
+        let missing: Vec<&String> = values.difference(&candidates).collect();
         if !missing.is_empty() {
             let field_label = schema
                 .fields
