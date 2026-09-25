@@ -160,6 +160,8 @@ pub struct ExportOptions {
     pub wide: Option<String>,
     /// 宽表的取值列（配合 --wide）
     pub value: Option<String>,
+    /// 宽表的"行身份"列（可重复；不给就按模板的引用列自动推断）
+    pub index: Vec<String>,
     /// 同时生成中文说明书（列字典 + 复现命令）
     pub readme: bool,
     /// 筛选：列:运算符:值（可重复）
@@ -173,15 +175,26 @@ pub fn export(kernel: &Kernel, opts: &ExportOptions) -> Result<Value> {
     let schema = kernel.table_schema(&opts.project, &opts.table)?;
     let headers = resolve_headers(&schema, &rows);
 
+    let mut pivot_index: Vec<String> = Vec::new();
+    let mut pivot_dropped: Vec<String> = Vec::new();
     let (headers, rows, conflicts) = match (&opts.wide, &opts.value) {
         (Some(key), Some(value)) => {
-            let (h, r, c) = pivot(&headers, &rows, key, value)?;
+            let (idx, dropped) = resolve_index(&schema, &headers, &opts.index, key, value)?;
+            let (h, r, c) = pivot(&headers, &rows, key, value, &idx)?;
+            pivot_index = idx;
+            pivot_dropped = dropped;
             (h, r, c)
         }
         (Some(_), None) => {
             return Err(KitError::with_hint(
                 "--wide 需要同时给出取值列：--value <列名>",
                 "例如 --wide factor --value value_num",
+            ))
+        }
+        (None, _) if !opts.index.is_empty() => {
+            return Err(KitError::with_hint(
+                "--index 只在宽表（--wide）时有意义",
+                "要么加上 --wide <键列> --value <取值列>，要么去掉 --index",
             ))
         }
         _ => (headers, rows, 0),
@@ -220,7 +233,17 @@ pub fn export(kernel: &Kernel, opts: &ExportOptions) -> Result<Value> {
     let mut readme_path = None;
     if opts.readme {
         let path = with_suffix(&file, ".README.md");
-        std::fs::write(&path, export_readme(opts, &schema, &headers, rows.len()))?;
+        std::fs::write(
+            &path,
+            export_readme(
+                opts,
+                &schema,
+                &headers,
+                rows.len(),
+                &pivot_index,
+                &pivot_dropped,
+            ),
+        )?;
         readme_path = Some(path.display().to_string());
     }
 
@@ -256,6 +279,8 @@ pub fn export(kernel: &Kernel, opts: &ExportOptions) -> Result<Value> {
         "readme": readme_path,
         "wide": wide,
         "pivot_conflicts": conflicts,
+        "pivot_index": pivot_index,
+        "pivot_dropped": pivot_dropped,
         "noted": note.is_some(),
     }))
 }
@@ -369,15 +394,85 @@ pub fn resolve_headers(schema: &cercis_kit_core::kernel::TableSchema, rows: &[Ro
     headers
 }
 
+/// 决定宽表的**行身份**（哪些列合起来算"一行"）。
+///
+/// 这是 S6 验收发现 F-04 的修复：早期版本把"除键列/值列以外的所有列"当成行身份，
+/// 于是主键（`obs_id`）、备注（`notes`）这些**逐行字段**也参与分组，
+/// 结果每个观测各占一行、每行只有一个指标有值——宽表等于没用。
+///
+/// 现在的规则，按优先级：
+/// 1. **显式指定**：`--index sample_id`（可多列）——最可靠，推荐给正式分析用；
+/// 2. **按模板推断**：用模板里声明了 `reference` 的列（外键，比如 `sample_id`
+///    指向样本）作为行身份——通常正好是"这一行讲的是谁"；
+/// 3. **兜底**：模板没有引用列时，才退回"除键列/值列以外的全部列"（旧行为）。
+///
+/// 返回（行身份列，被合并掉的列）。被合并的列会写进结果与说明书里，
+/// 不让用户以为"数据悄悄少了"。
+pub fn resolve_index(
+    schema: &cercis_kit_core::kernel::TableSchema,
+    headers: &[String],
+    explicit: &[String],
+    key_col: &str,
+    value_col: &str,
+) -> Result<(Vec<String>, Vec<String>)> {
+    let mut index: Vec<String> = if !explicit.is_empty() {
+        let mut wanted = Vec::new();
+        for c in explicit {
+            if !headers.iter().any(|h| h == c) {
+                return Err(KitError::with_hint(
+                    format!("--index 指定的列不存在：{c}"),
+                    format!("可用列：{}", headers.join("、")),
+                ));
+            }
+            wanted.push(c.clone());
+        }
+        wanted
+    } else {
+        let foreign_keys: Vec<String> = schema
+            .fields
+            .iter()
+            .filter(|f| !f.reference.trim().is_empty())
+            .map(|f| f.name.clone())
+            .filter(|name| headers.iter().any(|h| h == name))
+            .collect();
+        if foreign_keys.is_empty() {
+            headers
+                .iter()
+                .filter(|h| *h != key_col && *h != value_col)
+                .cloned()
+                .collect()
+        } else {
+            foreign_keys
+        }
+    };
+
+    // 键列与取值列永远不能当行身份
+    index.retain(|c| c != key_col && c != value_col);
+    if index.is_empty() {
+        return Err(KitError::with_hint(
+            "宽表需要至少一个行身份列",
+            "用 --index <列名> 指定（例如 --index sample_id）",
+        ));
+    }
+
+    let dropped: Vec<String> = headers
+        .iter()
+        .filter(|h| !index.contains(h) && *h != key_col && *h != value_col)
+        .cloned()
+        .collect();
+    Ok((index, dropped))
+}
+
 /// 长表 → 宽表：把 `key_col` 的不同取值透成列，用 `value_col` 填值。
 ///
-/// 行身份 = 除这两列以外的其余列。同一身份+同一键出现多行时，
+/// 行身份由 [`resolve_index`] 决定；同一身份 + 同一键出现多行时，
 /// **保留最后一个非空值**并计入 `conflicts`（不静默丢数据，报告里能看见）。
 pub fn pivot(
     headers: &[String],
     rows: &[Row],
     key_col: &str,
     value_col: &str,
+    index_cols: &[String],
 ) -> Result<(Vec<String>, Vec<Row>, usize)> {
     if !headers.iter().any(|h| h == key_col) {
         return Err(KitError::with_hint(
@@ -392,11 +487,14 @@ pub fn pivot(
         ));
     }
 
-    let index_cols: Vec<String> = headers
-        .iter()
-        .filter(|h| *h != key_col && *h != value_col)
-        .cloned()
-        .collect();
+    for c in index_cols {
+        if !headers.iter().any(|h| h == c) {
+            return Err(KitError::with_hint(
+                format!("行身份列不存在：{c}"),
+                format!("可用列：{}", headers.join("、")),
+            ));
+        }
+    }
 
     let mut keys: Vec<String> = rows
         .iter()
@@ -446,7 +544,7 @@ pub fn pivot(
         group.insert(pivot_key, value);
     }
 
-    let mut out_headers = index_cols;
+    let mut out_headers: Vec<String> = index_cols.to_vec();
     out_headers.extend(keys.clone());
     let out_rows: Vec<Row> = order
         .iter()
@@ -554,6 +652,8 @@ fn export_readme(
     schema: &cercis_kit_core::kernel::TableSchema,
     headers: &[String],
     rows: usize,
+    pivot_index: &[String],
+    pivot_dropped: &[String],
 ) -> String {
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let mut out = String::new();
@@ -577,6 +677,18 @@ fn export_readme(
             "- 形态：宽表（按「{w}」透视，取值列「{}」）\n",
             opts.value.clone().unwrap_or_default()
         ));
+        if !pivot_index.is_empty() {
+            out.push_str(&format!(
+                "- 行身份（决定「一行」的列）：{}\n",
+                pivot_index.join(" + ")
+            ));
+        }
+        if !pivot_dropped.is_empty() {
+            out.push_str(&format!(
+                "- 被合并的列：{}（宽表一行只放一个指标取值，这些逐行字段无法保留）\n",
+                pivot_dropped.join("、")
+            ));
+        }
     } else {
         out.push_str("- 形态：长表（一行一条记录）\n");
     }
@@ -607,7 +719,7 @@ fn export_readme(
 
     out.push_str("\n## 复现命令\n\n```bash\n");
     out.push_str(&format!(
-        "{} export --project {} --table {} --out {} --format {}{}{}\n",
+        "{} export --project {} --table {} --out {} --format {}{}{}{}{}\n",
         env!("CARGO_BIN_NAME"),
         opts.project.display(),
         opts.table,
@@ -617,6 +729,14 @@ fn export_readme(
             .as_ref()
             .map(|w| format!(" --wide {w}"))
             .unwrap_or_default(),
+        opts.value
+            .as_ref()
+            .map(|v| format!(" --value {v}"))
+            .unwrap_or_default(),
+        opts.index
+            .iter()
+            .map(|c| format!(" --index {c}"))
+            .collect::<String>(),
         opts.readme_combo()
     ));
     out.push_str("```\n\n");
@@ -727,7 +847,8 @@ mod tests {
             row(&[("plot", "P1"), ("factor", "P"), ("value_num", "12")]),
             row(&[("plot", "P2"), ("factor", "N"), ("value_num", "9")]),
         ];
-        let (h, r, conflicts) = pivot(&headers, &rows, "factor", "value_num").unwrap();
+        let idx = vec!["plot".to_string()];
+        let (h, r, conflicts) = pivot(&headers, &rows, "factor", "value_num", &idx).unwrap();
         assert_eq!(h, vec!["plot", "N", "P"]);
         assert_eq!(r.len(), 2);
         assert_eq!(r[0]["N"], "10");
@@ -743,7 +864,8 @@ mod tests {
             row(&[("plot", "P1"), ("factor", "N"), ("value", "1")]),
             row(&[("plot", "P1"), ("factor", "N"), ("value", "2")]),
         ];
-        let (_, r, conflicts) = pivot(&headers, &rows, "factor", "value").unwrap();
+        let idx = vec!["plot".to_string()];
+        let (_, r, conflicts) = pivot(&headers, &rows, "factor", "value", &idx).unwrap();
         assert_eq!(conflicts, 1);
         assert_eq!(r[0]["N"], "2");
     }
@@ -765,6 +887,111 @@ mod tests {
         );
     }
 
+    /// S6 发现 F-04：宽表的行身份不能把逐行字段（主键、备注）也算进去，
+    /// 否则每个观测各占一行、每行只有一个指标有值，宽表等于白做。
+    #[test]
+    fn widens_by_reference_column_by_default() {
+        let headers = vec![
+            "obs_id".to_string(),
+            "sample_id".to_string(),
+            "trait_id".to_string(),
+            "value_num".to_string(),
+            "unit".to_string(),
+            "notes".to_string(),
+        ];
+        // 模板：sample_id 是引用列（外键），obs_id 是主键
+        let schema = TableSchema {
+            table: "observations".into(),
+            label_cn: "观测".into(),
+            label_en: String::new(),
+            primary_key: "obs_id".into(),
+            fields: vec![
+                TableField {
+                    name: "obs_id".into(),
+                    label_cn: String::new(),
+                    label_en: String::new(),
+                    field_type: "text".into(),
+                    unit: String::new(),
+                    required: true,
+                    reference: String::new(),
+                    allowed_values: vec![],
+                    range: None,
+                },
+                TableField {
+                    name: "sample_id".into(),
+                    label_cn: String::new(),
+                    label_en: String::new(),
+                    field_type: "text".into(),
+                    unit: String::new(),
+                    required: true,
+                    reference: "samples.sample_id".into(),
+                    allowed_values: vec![],
+                    range: None,
+                },
+            ],
+        };
+
+        // 默认：按引用列（sample_id）分组，而不是按 obs_id
+        let (index, dropped) =
+            resolve_index(&schema, &headers, &[], "trait_id", "value_num").unwrap();
+        assert_eq!(index, vec!["sample_id".to_string()], "默认应按外键分组");
+        assert!(
+            dropped.contains(&"obs_id".to_string()) && dropped.contains(&"notes".to_string()),
+            "主键与备注应被合并掉：{dropped:?}"
+        );
+
+        // 显式指定优先
+        let (index2, _) = resolve_index(
+            &schema,
+            &headers,
+            &["sample_id".to_string(), "unit".to_string()],
+            "trait_id",
+            "value_num",
+        )
+        .unwrap();
+        assert_eq!(index2, vec!["sample_id".to_string(), "unit".to_string()]);
+
+        // 指定了不存在的列 → 报错并列出可用列
+        let err = resolve_index(&schema, &headers, &["nope".to_string()], "trait_id", "value_num")
+            .unwrap_err();
+        assert!(err.message.contains("nope"), "{err}");
+
+        // 模板里没有引用列 → 退回旧行为（除键列/取值列以外的全部列）
+        let no_fk = TableSchema {
+            table: "observations".into(),
+            label_cn: String::new(),
+            label_en: String::new(),
+            primary_key: String::new(),
+            fields: vec![],
+        };
+        let (index3, _) = resolve_index(&no_fk, &headers, &[], "trait_id", "value_num").unwrap();
+        assert_eq!(index3.len(), 4, "无引用列时应退回全部其余列：{index3:?}");
+    }
+
+    /// 宽表结果：一样本一行、指标成列（F-04 的验收形态）
+    #[test]
+    fn wide_table_has_one_row_per_sample() {
+        let headers = vec![
+            "obs_id".to_string(),
+            "sample_id".to_string(),
+            "trait_id".to_string(),
+            "value_num".to_string(),
+        ];
+        let rows = vec![
+            row(&[("obs_id", "OB-1"), ("sample_id", "S-1"), ("trait_id", "height"), ("value_num", "80")]),
+            row(&[("obs_id", "OB-2"), ("sample_id", "S-1"), ("trait_id", "spad"), ("value_num", "40")]),
+            row(&[("obs_id", "OB-3"), ("sample_id", "S-2"), ("trait_id", "height"), ("value_num", "90")]),
+        ];
+        let idx = vec!["sample_id".to_string()];
+        let (h, r, conflicts) = pivot(&headers, &rows, "trait_id", "value_num", &idx).unwrap();
+        assert_eq!(h, vec!["sample_id", "height", "spad"]);
+        assert_eq!(r.len(), 2, "两个样本应只有两行");
+        assert_eq!(r[0]["height"], "80");
+        assert_eq!(r[0]["spad"], "40");
+        assert_eq!(r[1]["spad"], "");
+        assert_eq!(conflicts, 0);
+    }
+
     /// 说明书与报告里的"复现命令"必须用**当前**的二进制名。
     ///
     /// 这个是 S6 黄金对照验收抓到的真问题：工具包拆成四个插件后，
@@ -781,6 +1008,7 @@ mod tests {
             format: "csv".into(),
             wide: None,
             value: None,
+            index: vec![],
             readme: true,
             filters: vec![],
             sort: None,
@@ -792,7 +1020,7 @@ mod tests {
             primary_key: "obs_id".into(),
             fields: vec![],
         };
-        let readme = export_readme(&export, &schema, &["obs_id".to_string()], 3);
+        let readme = export_readme(&export, &schema, &["obs_id".to_string()], 3, &[], &[]);
         assert!(
             readme.contains(&format!("{bin} export --project")),
             "导出说明书的复现命令应使用 {bin}：\n{readme}"
@@ -908,6 +1136,9 @@ struct ExportArgs {
     /// 宽表的取值列（配合 --wide）
     #[arg(long)]
     value: Option<String>,
+    /// 宽表的"行身份"列（可重复或逗号分隔；不给就按模板的引用列自动推断）
+    #[arg(long, value_delimiter = ',', value_name = "列名")]
+    index: Vec<String>,
     /// 同时生成数据说明书（列字典 + 复现命令）
     #[arg(long)]
     readme: bool,
@@ -962,6 +1193,7 @@ fn main() {
                     format: a.format.clone(),
                     wide: a.wide.clone(),
                     value: a.value.clone(),
+                    index: a.index.clone(),
                     readme: a.readme,
                     filters: a.filters.clone(),
                     sort: a.sort.clone(),
