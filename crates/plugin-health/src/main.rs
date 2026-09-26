@@ -250,14 +250,36 @@ pub fn run(kernel: &Kernel, project: &Path) -> Result<Value> {
         }
     }
     // 项目里有、模板里没有的表：不是错误，但值得知道
+    // 系统表（内核自己维护的）不算"模板外的表"，别当残留报出来
+    const SYSTEM_TABLES: [&str; 2] = ["change_log", "corrections"];
     for extra in &found_tables {
+        if SYSTEM_TABLES.contains(&extra.as_str()) {
+            continue;
+        }
         if !schema_names.is_empty() && !schema_names.contains(extra) {
+            // F-05：换模板后残留的空表——说清"是空表还是带着数据"，并给出清理命令
+            let (rows, hint) = table_data.get(extra).map_or((0, String::new()), |(cols, data)| {
+                let n = data.len();
+                if n == 0 && !cols.is_empty() {
+                    (
+                        n,
+                        format!(
+                            "\n     空表，可以直接清掉：cercis drop-table <项目> --table {extra} --dry-run"
+                        ),
+                    )
+                } else {
+                    (n, format!("\n     表里有 {n} 行数据——要留着就把它加进模板"))
+                }
+            });
             findings.push(Finding {
                 level: "info",
-                code: "table.extra",
+                code: if rows == 0 { "table.extra.empty" } else { "table.extra" },
                 target: format!("tables/{extra}.csv"),
-                message_cn: format!("表 {extra} 不在当前模板里（自定义表，或用错了模板）"),
-                message_en: format!("Table {extra} is not in the current template"),
+                message_cn: format!("表 {extra} 不在当前模板里（自定义表，或用错了模板）{hint}"),
+                message_en: format!(
+                    "Table {extra} is not in the current template ({} rows)",
+                    rows
+                ),
             });
         }
     }
