@@ -1,0 +1,55 @@
+{
+  "schema": "cercis.marketplace/1",
+  "name": "基础工具包",
+  "label_cn": "基础工具包（随 app 交付）",
+  "label_en": "Basic kit (bundled)",
+  "bundled": true,
+  "description": "随 Cercis app 一起交付的基础插件：项目向导、通用录入、通用导入导出、通用体检。它们已经装在你的 app 里——这个市场的作用是让「装了什么、哪一版、能不能修」有据可查：插件只能停用/屏蔽，不能删除。",
+  "repository": "https://github.com/epigrove/cercis-kits-basic",
+  "plugins": [
+    {
+      "id": "project_wizard",
+      "name": "项目向导",
+      "label_cn": "项目向导",
+      "path": "plugins/project_wizard",
+      "version": "0.1.0",
+      "tier": "basic",
+      "requires_plugin_api": 1,
+      "permissions": "读取数据、写入数据",
+      "summary": "新建项目、装模板、看骨架；把「建库 → 装模板 → 开录」三步串起来"
+    },
+    {
+      "id": "data_entry",
+      "name": "通用录入",
+      "label_cn": "通用录入",
+      "path": "plugins/data_entry",
+      "version": "0.1.0",
+      "tier": "basic",
+      "requires_plugin_api": 1,
+      "permissions": "读取数据、写入数据",
+      "summary": "单条/批量录入与附件挂接；写入前先检查，写后留痕"
+    },
+    {
+      "id": "import_export",
+      "name": "通用导入导出",
+      "label_cn": "通用导入导出",
+      "path": "plugins/import_export",
+      "version": "0.1.0",
+      "tier": "basic",
+      "requires_plugin_api": 1,
+      "permissions": "读取数据、写入数据",
+      "summary": "CSV/TSV 导入（试运行 + 差异预览）、长表/宽表导出、导出说明书"
+    },
+    {
+      "id": "health_check",
+      "name": "通用体检",
+      "label_cn": "通用体检",
+      "path": "plugins/health_check",
+      "version": "0.1.0",
+      "tier": "basic",
+      "requires_plugin_api": 1,
+      "permissions": "读取数据",
+      "summary": "逐张表查编码、列名、主键、空表、孤儿媒体；给出可执行的问题清单"
+    }
+  ]
+}
