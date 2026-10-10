@@ -1,93 +1,99 @@
-# 基础工具包（cercis-kits-basic）
+# Basic kit (cercis-kits-basic)
 
-人人可用的基础功能。**它不是一个程序，而是一组独立插件**——
-每个插件有自己的 `plugin.yaml`、自己的权限、自己的界面扩展点，
-可以单独启停、单独授权、单独升级（需求文档 §14.4 第 2 层）。
+**English** | [中文](README.zh-CN.md)
 
-> 本仓库只放**任何行业都用得上**的功能；科研专用功能在另一个仓库
-> `cercis-kits-research`（需求文档 §14.4 的"共用下沿"原则）。
+Everyday functionality for everyone. **It is not a program — it is a set of independent plugins**:
+each has its own `plugin.yaml`, its own permissions and its own UI extension points, and can be
+enabled, authorised or upgraded on its own.
+
+> This repository only holds features **every domain needs**; research-specific features live in
+> `cercis-kits-research`.
 
 ```
 basic/
 ├── crates/
-│   ├── cercis-kit-core/        共用库：内核桥、行级检查、引用检查、输入解析
-│   ├── plugin-project-wizard/  插件 1 · 项目向导
-│   ├── plugin-data-entry/      插件 2 · 通用录入
-│   ├── plugin-transfer/        插件 3 · 通用导入导出
-│   └── plugin-health/          插件 4 · 通用体检
-└── plugins/                    随包分发的插件清单（每个插件一个目录）
+│   ├── cercis-kit-core/        shared library: kernel bridge, row checks, reference checks
+│   ├── plugin-project-wizard/  plugin 1 · project wizard
+│   ├── plugin-data-entry/      plugin 2 · data entry
+│   ├── plugin-transfer/        plugin 3 · import & export
+│   └── plugin-health/          plugin 4 · health check
+└── plugins/                    plugin manifests shipped with the kit (one directory each)
     ├── project_wizard/plugin.yaml
     ├── data_entry/plugin.yaml
     ├── import_export/plugin.yaml
     └── health_check/plugin.yaml
 ```
 
-## 第一批插件（S5）
+## The first four plugins
 
-| 插件 | 能力 | 权限 | 入口 |
-|------|------|------|------|
-| `project_wizard` 项目向导 | 新建项目、选模板、扫描已有文件夹（只读） | 读 + 写 | `cercis-plugin-wizard` |
-| `data_entry` 通用录入 | 批量粘贴、单行录入、附件挂接 | 读 + 写 | `cercis-plugin-entry` |
-| `import_export` 通用导入导出 | CSV/TSV 导入（映射/试运行/报告）、长表与宽表导出、数据说明书 | 读 + 写 | `cercis-plugin-transfer` |
-| `health_check` 通用体检 | 目录骨架、断链、编码、命名冲突、主键重复、孤儿附件 | **只读** | `cercis-plugin-health` |
+| Plugin | Capability | Permissions | Entry point |
+|--------|-----------|-------------|-------------|
+| `project_wizard` Project wizard | create a project, install a template, scan an existing folder (read-only) | read + write | `cercis-plugin-wizard` |
+| `data_entry` Data entry | batch paste, single-row entry, attach files | read + write | `cercis-plugin-entry` |
+| `import_export` Import & export | CSV/TSV import (mapping / dry run / report), long and wide export, data notes | read + write | `cercis-plugin-transfer` |
+| `health_check` Health check | directory skeleton, broken links, encoding, name clashes, duplicate keys, orphan attachments | **read-only** | `cercis-plugin-health` |
 
-> 后续批次（打包合并、备份恢复、插件管理器、通用查询界面）按里程碑加入同一目录。
+> Later batches (pack & merge, backup/restore, plugin manager, a generic query UI) join the same
+> directory as milestones land.
 
-## 共同的规矩
+## Shared rules
 
-1. **写入只走内核**：插件通过 `cercis` 命令 + `--json` 干活，绕不过内核的
-   原子写入、逐次存档与变更流水（需求文档 FR-P05）。
-2. **默认只读**：要写入必须在清单里声明 `write`，并由 app 在调用时授予
-   `--allow-write`；没授权时插件明确拒绝，而不是"悄悄写进去"。
-3. **写前先检查**：列名、必填、类型、主键重复、**引用完整性**都在写入前查完；
-   有问题就整批不写，不给项目留半成品。
-4. **核心能力平台无关**：界面适配由各插件在 app 端通过扩展点声明，
-   同一份逻辑服务桌面/Pad/手机（§14.6）。
+1. **Writes only go through the kernel**: plugins work through the `cercis` command with `--json`
+   and therefore cannot bypass atomic writes, per-change snapshots or the change log.
+2. **Read-only by default**: writing requires declaring `write` in the manifest, and the app
+   injects `--allow-write` only when the user has authorised it; without it a plugin refuses
+   outright instead of writing quietly.
+3. **Check before writing**: column names, required fields, types, duplicate keys and
+   **referential integrity** are validated before anything is written; a problem means the whole
+   batch is not written — no half-finished imports.
+4. **Core capability is platform-neutral**: UI adaptation is declared through extension points in
+   the app, so one implementation serves desktop, tablet and phone.
 
-## 构建与测试
+## Build and test
 
 ```bash
-cd cercis-kits-basic       # 在本工作区里是 kits/basic
-cargo build          # 产出 4 个插件二进制
-cargo test           # 34 个测试：单元 + 端到端（跨进程跑真内核）
-                     # 含"清单里声明的命令必须是插件真认的子命令"
+cd cercis-kits-basic       # in the development workspace: kits/basic
+cargo build          # produces the four plugin binaries
+cargo test           # 34 tests: unit + end-to-end (cross-process, against the real kernel)
+                     # including "every command declared in a manifest is a real subcommand"
 ```
 
-端到端测试会真的调用内核命令，因此需要内核二进制存在：
+The end-to-end tests really call kernel commands, so the kernel binary must exist:
 
 ```bash
-cd ../kernel && cargo build     # 在本工作区里；单独克隆时指向 cercis-core
+cd ../kernel && cargo build     # in the development workspace
 ```
 
-装进用户插件目录（app 与命令行都会去那里找插件；会写安装台账、标成"随包"不可删除）：
+Install them into your user plugin directory (that is where the app and the CLI look for plugins;
+this records the install in the ledger and marks them as "bundled" so they cannot be deleted):
 
 ```bash
-bash ../apps/desktop/packaging/install-basic-kits.sh   # 需要 apps 仓库在旁边
+bash ../apps/desktop/packaging/install-basic-kits.sh   # needs the apps repository next to it
 ```
 
-若插件二进制比源码旧（`cargo test` 不会刷新 `target/debug/` 下的插件），
-测试会**跳过并说明原因**，而不是拿旧二进制假装通过。
+If a plugin binary is older than its source (`cargo test` does not rebuild the plugin binaries in
+`target/debug/`), the tests **skip it and say so** rather than passing on a stale binary.
 
-## 手工试一遍
+## Try it by hand
 
 ```bash
-# 1. 建项目（项目向导插件）
-cercis-plugin-wizard --project /tmp/demo --name 演示 --template example-study --allow-write
+# 1. create a project (project wizard)
+cercis-plugin-wizard --project /tmp/demo --name demo --template example-study --allow-write
 
-# 2. 录一行（录入插件）
+# 2. record a row (data entry)
 cercis-plugin-entry append --project /tmp/demo --table studies \
-  --set study_id=ST-001 --set name=演示研究 --allow-write
+  --set study_id=ST-001 --set name="demo study" --allow-write
 
-# 3. 导入 CSV（导入导出插件）
+# 3. import CSV (import & export)
 cercis-plugin-transfer import --project /tmp/demo --table studies \
-  --file 更多研究.csv --report /tmp/demo/import-report.md --allow-write
+  --file more-studies.csv --report /tmp/demo/import-report.md --allow-write
 
-# 4. 导出 + 说明书
+# 4. export + data notes
 cercis-plugin-transfer export --project /tmp/demo --table studies \
   --out /tmp/demo/exports --readme --allow-write
 
-# 5. 体检（只读插件）
+# 5. health check (read-only plugin)
 cercis-plugin-health --project /tmp/demo
 ```
 
-每个命令加 `--json` 得到机器可读输出——app 与 AI 用的就是这条通道。
+Add `--json` to any command for machine-readable output — that is the channel the app and AI use.
