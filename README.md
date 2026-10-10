@@ -49,7 +49,7 @@ basic/
 ```bash
 cd cercis-kits-basic       # 在本工作区里是 kits/basic
 cargo build          # 产出 4 个插件二进制
-cargo test           # 20 个测试：单元 + 端到端（跨进程跑真内核）
+cargo test           # 34 个测试：单元 + 端到端（跨进程跑真内核）
                      # 含"清单里声明的命令必须是插件真认的子命令"
 ```
 
@@ -57,6 +57,12 @@ cargo test           # 20 个测试：单元 + 端到端（跨进程跑真内核
 
 ```bash
 cd ../kernel && cargo build     # 在本工作区里；单独克隆时指向 cercis-core
+```
+
+装进用户插件目录（app 与命令行都会去那里找插件；会写安装台账、标成"随包"不可删除）：
+
+```bash
+bash ../apps/desktop/packaging/install-basic-kits.sh   # 需要 apps 仓库在旁边
 ```
 
 若插件二进制比源码旧（`cargo test` 不会刷新 `target/debug/` 下的插件），
